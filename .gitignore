@@ -1,0 +1,49 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+.env
+.packages/
+
+# Data files (raw datasets, local dumps)
+*.csv
+*.tsv
+*.parquet
+*.avro
+*.orc
+*.duckdb
+*.db
+*.sqlite
+*.sqlite3
+
+# Archives
+*.zip
+*.tar
+*.gz
+*.7z
+
+# Temporary files
+*.tmp
+
+# Keep logs and command outputs in git as required by Lab 4 rubric!
+!logs/
+!logs/*.log
+!logs/*.txt
+
+# OS-generated files
+Thumbs.db
+[Dd]esktop.ini
+.DS_Store
+
+# IDE / Editor settings
+.idea/
+.vscode/
+
+*.docx
+*.pdf

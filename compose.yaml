@@ -1,0 +1,139 @@
+name: hh-stand  # Имя проекта (совпадает с ДЗ 2–3 для переиспользования тома hh-stand_rustfs-home)
+
+# Ансамбль Apache ZooKeeper из трёх узлов (zk1, zk2, zk3),
+# объектное хранилище RustFS (rustfs-home) и два экземпляра координатора расчёта (worker-a, worker-b).
+
+# Общий шаблон для серверов ансамбля ZooKeeper
+x-zk: &zk
+  image: zookeeper:3.9
+  networks: [stand]
+  restart: "no"  # остановленный для проверки кворума узел не должен перезапускаться автоматически
+  environment: &zk-env
+    ZOO_TICK_TIME: 2000
+    ZOO_INIT_LIMIT: 5
+    ZOO_SYNC_LIMIT: 2
+    ZOO_MAX_SESSION_TIMEOUT: 40000
+    ZOO_MIN_SESSION_TIMEOUT: 4000
+    # Список всех участников ансамбля одинаковый на всех трёх серверах:
+    # 2888 — порт репликации (follower -> leader), 3888 — порт выбора лидера, 2181 — клиентский порт
+    ZOO_SERVERS: server.1=zk1:2888:3888;2181 server.2=zk2:2888:3888;2181 server.3=zk3:2888:3888;2181
+    ZOO_4LW_COMMANDS_WHITELIST: "*"
+
+# Общий шаблон для контейнеров координатора расчёта (профиль coord)
+x-worker: &worker
+  image: python:3.11-slim
+  profiles: ["coord"]
+  networks: [stand]
+  restart: "no"
+  working_dir: /app
+  volumes:
+    - ./:/app
+  environment: &worker-env
+    PYTHONUNBUFFERED: "1"
+    PYTHONPATH: "/app/.packages:/app"
+    ZK_HOSTS: "zk1:2181,zk2:2181,zk3:2181"
+    S3_ENDPOINT: "http://rustfs-home:9000"
+    S3_ACCESS_KEY: ${S3_ACCESS_KEY:-hhadmin}
+    S3_SECRET_KEY: ${S3_SECRET_KEY:-hhadmin-secret}
+    S3_BUCKET: ${S3_BUCKET:-hh-lake}
+    S3_KEY: ${S3_KEY:-it_vacancies_2024.csv}
+    RUN: ${RUN:-demo1}
+    FENCING: ${FENCING:-0}
+    SLOW: ${SLOW:-3}
+    SESSION_TIMEOUT: ${SESSION_TIMEOUT:-10}
+  command: >
+    sh -c "if [ ! -d /app/.packages/kazoo ]; then
+             pip install -q --target /app/.packages kazoo boto3;
+           fi &&
+           exec python3 -u /app/coordinator.py"
+
+services:
+  # --- АНСАМБЛЬ APACHE ZOOKEEPER (3 СЕРВЕРА) ---
+  zk1:
+    <<: *zk
+    hostname: zk1
+    container_name: hh-zk1
+    environment:
+      <<: *zk-env
+      ZOO_MY_ID: 1
+    ports:
+      - "2181:2181"
+    volumes:
+      - zk1-data:/data
+      - zk1-datalog:/datalog
+
+  zk2:
+    <<: *zk
+    hostname: zk2
+    container_name: hh-zk2
+    environment:
+      <<: *zk-env
+      ZOO_MY_ID: 2
+    ports:
+      - "2182:2181"
+    volumes:
+      - zk2-data:/data
+      - zk2-datalog:/datalog
+
+  zk3:
+    <<: *zk
+    hostname: zk3
+    container_name: hh-zk3
+    environment:
+      <<: *zk-env
+      ZOO_MY_ID: 3
+    ports:
+      - "2183:2181"
+    volumes:
+      - zk3-data:/data
+      - zk3-datalog:/datalog
+
+  # --- ОБЪЕКТНОЕ ХРАНИЛИЩЕ S3 (RustFS из ДЗ 2–3) ---
+  rustfs-home:
+    image: rustfs/rustfs:1.0.0
+    hostname: rustfs-home
+    container_name: hh-rustfs-home
+    profiles: ["home", "coord"]
+    networks: [stand]
+    restart: "no"
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:-hhadmin}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:-hhadmin-secret}
+      RUSTFS_VOLUMES: /data/vol{1...4}
+      RUSTFS_UNSAFE_BYPASS_DISK_CHECK: "true"
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ADDRESS: ":9001"
+    ports:
+      - "9010:9000"
+      - "9011:9001"
+    volumes:
+      - rustfs-home:/data
+
+  # --- ДВЕ КОПИИ КООРДИНАТОРА РАСЧЁТА (Активный и Запасной) ---
+  worker-a:
+    <<: *worker
+    hostname: worker-a
+    container_name: hh-worker-a
+    environment:
+      <<: *worker-env
+      WORKER_ID: "A"
+
+  worker-b:
+    <<: *worker
+    hostname: worker-b
+    container_name: hh-worker-b
+    environment:
+      <<: *worker-env
+      WORKER_ID: "B"
+
+networks:
+  stand:
+
+volumes:
+  zk1-data:
+  zk1-datalog:
+  zk2-data:
+  zk2-datalog:
+  zk3-data:
+  zk3-datalog:
+  rustfs-home:
